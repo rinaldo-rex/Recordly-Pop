@@ -855,21 +855,53 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 	}
 
 	private static func resolveMicrophoneCaptureDeviceID(config: CaptureConfig) -> String? {
-		let audioDevices = AVCaptureDevice.devices(for: .audio)
+		let audioDevices = AVCaptureDevice.devices(for: .audio).map {
+			(name: $0.localizedName, uniqueID: $0.uniqueID)
+		}
+		return matchMicrophoneDeviceID(
+			label: config.microphoneLabel,
+			deviceId: config.microphoneDeviceId,
+			devices: audioDevices
+		)
+	}
 
-		if let microphoneLabel = config.microphoneLabel?.trimmingCharacters(in: .whitespacesAndNewlines), !microphoneLabel.isEmpty {
-			if let matchedDevice = audioDevices.first(where: { $0.localizedName == microphoneLabel }) {
-				return matchedDevice.uniqueID
-			}
+	/// Matches the exact label first, then a known device ID, and only then the
+	/// label without its transport suffix, because that last step is a name
+	/// heuristic and must not override a precise identifier.
+	private static func matchMicrophoneDeviceID(
+		label: String?,
+		deviceId: String?,
+		devices: [(name: String, uniqueID: String)]
+	) -> String? {
+		let label = label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+		if !label.isEmpty, let matchedDevice = devices.first(where: { $0.name == label }) {
+			return matchedDevice.uniqueID
 		}
 
-		if let microphoneDeviceId = config.microphoneDeviceId?.trimmingCharacters(in: .whitespacesAndNewlines), !microphoneDeviceId.isEmpty {
-			if audioDevices.contains(where: { $0.uniqueID == microphoneDeviceId }) {
-				return microphoneDeviceId
-			}
+		let deviceId = deviceId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+		if !deviceId.isEmpty, devices.contains(where: { $0.uniqueID == deviceId }) {
+			return deviceId
+		}
+
+		if let undecoratedName = undecoratedMicrophoneName(forLabel: label),
+		   let matchedDevice = devices.first(where: { $0.name == undecoratedName }) {
+			return matchedDevice.uniqueID
 		}
 
 		return nil
+	}
+
+	/// The label comes from Chromium's `enumerateDevices()`, which appends a
+	/// transport suffix to the CoreAudio name — "Shure MV7 (14ed:1012)",
+	/// "MacBook Pro Microphone (Built-in)", "BlackHole 16ch (Virtual)" — so it
+	/// rarely equals `localizedName` as-is.  Without the undecorated name the
+	/// selection is silently ignored and the system default input is recorded.
+	private static func undecoratedMicrophoneName(forLabel label: String) -> String? {
+		guard label.hasSuffix(")"), let suffixStart = label.range(of: " (", options: .backwards) else {
+			return nil
+		}
+		let undecoratedName = label[..<suffixStart.lowerBound].trimmingCharacters(in: .whitespaces)
+		return undecoratedName.isEmpty ? nil : undecoratedName
 	}
 
 	private func supportsNativeMicrophoneCapture(streamConfig: SCStreamConfiguration) -> Bool {
