@@ -4,6 +4,7 @@
   "appId": "dev.recordly.app",
   "electronUpdaterCompatibility": ">=2.16",
   "asar": true,
+  "afterPack": "scripts/after-pack-linux.cjs",
   "asarUnpack": [
     "node_modules/ffmpeg-static/**",
     "node_modules/ffprobe-static/**",

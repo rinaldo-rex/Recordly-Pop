@@ -13,15 +13,19 @@ function normalizeLinuxWindowSystem(value: string | undefined): "wayland" | "x11
 	return null;
 }
 
-function getForcedLinuxWindowSystem(env: NodeJS.ProcessEnv): "wayland" | "x11" | null {
+function getForcedLinuxWindowSystem(
+	env: NodeJS.ProcessEnv,
+	ozonePlatform?: string,
+): "wayland" | "x11" | null {
 	return (
+		normalizeLinuxWindowSystem(ozonePlatform) ??
 		normalizeLinuxWindowSystem(env.OZONE_PLATFORM) ??
 		normalizeLinuxWindowSystem(env.ELECTRON_OZONE_PLATFORM_HINT)
 	);
 }
 
-export function shouldForceLinuxEgl(env: NodeJS.ProcessEnv): boolean {
-	const forcedWindowSystem = getForcedLinuxWindowSystem(env);
+export function shouldUseLinuxAngle(env: NodeJS.ProcessEnv, ozonePlatform?: string): boolean {
+	const forcedWindowSystem = getForcedLinuxWindowSystem(env, ozonePlatform);
 	if (forcedWindowSystem === "wayland") {
 		return false;
 	}
@@ -43,6 +47,7 @@ export function shouldForceLinuxEgl(env: NodeJS.ProcessEnv): boolean {
 export function getGpuSwitches(
 	platform: NodeJS.Platform,
 	env: NodeJS.ProcessEnv = process.env,
+	ozonePlatform?: string,
 ): GpuSwitches {
 	if (platform === "darwin") {
 		return {
@@ -56,8 +61,12 @@ export function getGpuSwitches(
 	}
 
 	if (platform === "linux") {
+		// Chromium 150 accepts ANGLE on X11, not the legacy egl-gles2 backend.
+		// Keep Wayland session metadata intact so screen capture can use PipeWire.
+		const useAngle = shouldUseLinuxAngle(env, ozonePlatform);
 		return {
-			useGl: shouldForceLinuxEgl(env) ? "egl" : undefined,
+			useAngle: useAngle ? "gl" : undefined,
+			useGl: useAngle ? "angle" : undefined,
 			disableFeatures: ["VaapiVideoDecoder", "VaapiVideoEncoder"],
 		};
 	}
