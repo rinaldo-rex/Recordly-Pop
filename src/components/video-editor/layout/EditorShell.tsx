@@ -1,22 +1,24 @@
+import { type ComponentProps, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { EditorAnnouncementBanner } from "@/components/announcements/EditorAnnouncementBanner";
 import { OnboardingController } from "@/components/auth/OnboardingController";
-import { AccountProfileContext } from "@/components/ui/account-avatar";
-import { DashboardSettingsContext } from "../dashboard/DashboardSettings";
 import { RecordlySignInDialog, type SignInReason } from "@/components/auth/RecordlySignInDialog";
 import { useRecordlyAuth } from "@/components/auth/useRecordlyAuth";
-import { useVideoSourceRecovery } from "../hooks/useVideoSourceRecovery";
-import { useRecordingLibrary } from "../library/useRecordingLibrary";
-import { RecordingLibraryPanel } from "../library/RecordingLibraryPanel";
-import { RECORDING_DRAG_TYPE } from "@/types/recordingLibrary";
+import { AccountProfileContext } from "@/components/ui/account-avatar";
 import { Button } from "@/components/ui/button";
-import { useCallback, useMemo, useEffect, useRef, useState, type ComponentProps } from "react";
-import { EditorAnnouncementBanner } from "@/components/announcements/EditorAnnouncementBanner";
 import { Toaster } from "@/components/ui/toast";
 import type { useI18n } from "@/contexts/I18nContext";
+import { getStartupView } from "@/lib/startupView";
+import { RECORDING_DRAG_TYPE } from "@/types/recordingLibrary";
+import { DashboardSettingsContext } from "../dashboard/DashboardSettings";
+import { HomeLoadingSkeleton } from "../dashboard/HomeLoadingSkeleton";
 import type { useEditorExportController } from "../export/useEditorExportController";
 import type { useExportDimensions } from "../export/useExportDimensions";
 import type { useExportSession } from "../export/useExportSession";
 import type { useExportSettings } from "../export/useExportSettings";
 import type { useTimelineEditingController } from "../hooks/useTimelineEditingController";
+import { useVideoSourceRecovery } from "../hooks/useVideoSourceRecovery";
+import { RecordingLibraryPanel } from "../library/RecordingLibraryPanel";
+import { useRecordingLibrary } from "../library/useRecordingLibrary";
 import type { useVideoEditorPresets } from "../presets/useVideoEditorPresets";
 import type { useEditorProjectController } from "../project/useEditorProjectController";
 import { SettingsPanel } from "../SettingsPanel";
@@ -26,10 +28,8 @@ import type { useProjectState } from "../state/useProjectState";
 import type { useTimelineState } from "../state/useTimelineState";
 import { CropEditorDialog } from "./CropEditorDialog";
 import { EditorDialogs } from "./EditorDialogs";
-import { getStartupView } from "@/lib/startupView";
-import { HomeLoadingSkeleton } from "../dashboard/HomeLoadingSkeleton";
-import { EditorLoadingSkeleton } from "./EditorLoadingSkeleton";
 import { EditorHeader } from "./EditorHeader";
+import { EditorLoadingSkeleton } from "./EditorLoadingSkeleton";
 import { EditorPreviewPanel } from "./EditorPreviewPanel";
 import { EditorSidebar } from "./EditorSidebar";
 import { EditorTimelinePanel } from "./EditorTimelinePanel";
@@ -153,13 +153,7 @@ export function EditorShell(props: Props) {
 		[settingsPanelProps, showOnboarding, auth.user],
 	);
 	const onboarding = (
-		<OnboardingController
-			requestNonce={onboardingRequest}
-			ready={!project.loading && !auth.loading}
-			user={auth.user}
-			configured={auth.configured}
-			callbackError={auth.callbackError}
-		/>
+		<OnboardingController requestNonce={onboardingRequest} ready={!project.loading} />
 	);
 	const editorDialogs = (
 		<AccountProfileContext.Provider value={auth.user}>

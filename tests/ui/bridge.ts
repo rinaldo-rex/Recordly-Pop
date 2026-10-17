@@ -153,6 +153,7 @@ export async function installDesktopBridge(
 				onStopRecordingFromTray: subscribe,
 				onRecordingStateChanged: subscribe,
 				onRecordingInterrupted: subscribe,
+				onCloudShareProgress: subscribe,
 				hudOverlayRendererReady: success,
 				hudOverlaySetIgnoreMouse: success,
 				hudOverlaySetWebcamPreviewVisible: success,
