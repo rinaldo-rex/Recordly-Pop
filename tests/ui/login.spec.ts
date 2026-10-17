@@ -1,8 +1,33 @@
-import { expect, test } from "@playwright/test";
-import { installDesktopBridge } from "./bridge";
+import { expect, type Page, test } from "@playwright/test";
 import { completeSupabaseSignIn } from "./auth";
+import { installDesktopBridge } from "./bridge";
 
-test("sign-in offers only providers enabled in Supabase", async ({ page }) => {
+async function openSignIn(page: Page) {
+	await page.getByRole("button", { name: "Recordly account", exact: true }).click();
+	const login = page.getByRole("dialog").filter({
+		has: page.getByRole("textbox", { name: /^Email\*?$/ }),
+	});
+	await expect(login).toBeVisible();
+	return login;
+}
+
+test("local export is available to guests while cloud sharing still requests sign-in", async ({
+	page,
+}) => {
+	await installDesktopBridge(page, "preview.mp4", { signedIn: false });
+	await page.goto("/?windowType=editor");
+	await expect(page.getByRole("button", { name: "Play", exact: true })).toBeEnabled();
+	await page.getByRole("button", { name: "Publish", exact: true }).click();
+	await page.getByRole("row", { name: "Local", exact: true }).click();
+	await expect(page.getByRole("button", { name: "Export Video", exact: true })).toBeEnabled();
+	await expect(page.getByRole("textbox", { name: /^Email\*?$/ })).toHaveCount(0);
+	await page.getByRole("row", { name: "Link", exact: true }).click();
+	await page.getByRole("button", { name: "Sign in to share", exact: true }).click();
+	await expect(page.getByRole("textbox", { name: /^Email\*?$/ })).toBeVisible();
+	expect(await page.evaluate(() => localStorage.getItem("sb-auth-auth-token"))).toBeNull();
+});
+
+test("optional sign-in offers only providers enabled in Supabase", async ({ page }) => {
 	await installDesktopBridge(page, "preview.mp4", { signedIn: false });
 	await page.route("https://auth.recordly.test/auth/v1/settings", (route) =>
 		route.fulfill({
@@ -10,8 +35,7 @@ test("sign-in offers only providers enabled in Supabase", async ({ page }) => {
 		}),
 	);
 	await page.goto("/?windowType=editor");
-	const login = page.getByRole("dialog", { name: "Welcome to Recordly" });
-	await expect(login).toBeVisible({ timeout: 20000 });
+	const login = await openSignIn(page);
 	await expect(
 		login.getByRole("button", { name: "Continue with Google", exact: true }),
 	).toBeVisible();
@@ -30,13 +54,12 @@ test("sign-in offers only providers enabled in Supabase", async ({ page }) => {
 	await expect(magicLink).toBeEnabled();
 	await email.clear();
 	await expect(magicLink).toHaveCount(0);
-	await page.screenshot({
-		path: "test-results/onboarding-enabled-providers.png",
-		animations: "disabled",
-	});
+	await login.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(login).not.toBeVisible();
+	await expect(page.getByRole("button", { name: "Play", exact: true })).toBeEnabled();
 });
 
-test("email sign-in reports Supabase errors and allows retry without granting access", async ({
+test("email sign-in reports errors and retries without fabricating a cloud session", async ({
 	page,
 }) => {
 	await installDesktopBridge(page, "preview.mp4", { signedIn: false });
@@ -51,18 +74,19 @@ test("email sign-in reports Supabase errors and allows retry without granting ac
 		return route.fulfill({ json: {} });
 	});
 	await page.goto("/?windowType=editor");
-	const login = page.getByRole("dialog", { name: "Welcome to Recordly" });
+	const login = await openSignIn(page);
 	await login.getByRole("textbox", { name: /^Email\*?$/ }).fill("owner@example.test");
 	await login.getByRole("button", { name: "Email me a magic link" }).click();
 	await expect(login.getByText("Please wait before requesting another email.")).toBeVisible();
-	await expect(login).toHaveAttribute("data-onboarding-state", "login");
 	await login.getByRole("button", { name: "Email me a magic link" }).click();
 	await expect(login.getByText(/Check your inbox/)).toBeVisible();
-	await expect(login).toHaveAttribute("data-onboarding-state", "login");
 	expect(attempts).toBe(2);
+	expect(await page.evaluate(() => localStorage.getItem("sb-auth-auth-token"))).toBeNull();
 });
 
-test("a rejected Supabase callback keeps sign-in mandatory", async ({ page }) => {
+test("a rejected callback does not grant a cloud session and local use remains available", async ({
+	page,
+}) => {
 	await installDesktopBridge(page, "preview.mp4", { signedIn: false });
 	await page.route("https://auth.recordly.test/auth/v1/token**", (route) =>
 		route.fulfill({
@@ -71,17 +95,15 @@ test("a rejected Supabase callback keeps sign-in mandatory", async ({ page }) =>
 		}),
 	);
 	await page.goto("/?windowType=editor");
-	const login = page.getByRole("dialog", { name: "Welcome to Recordly" });
+	const login = await openSignIn(page);
 	await login.getByRole("textbox", { name: /^Email\*?$/ }).fill("owner@example.test");
 	await login.getByRole("button", { name: "Email me a magic link" }).click();
 	await expect(login.getByText(/Check your inbox/)).toBeVisible();
 	await completeSupabaseSignIn(page);
 	await expect(login.getByText("Sign-in link has expired")).toBeVisible();
-	await expect(login).toHaveAttribute("data-onboarding-state", "login");
-	await expect(login.getByRole("button", { name: "Continue", exact: true })).toHaveCount(0);
-	await login.getByRole("button", { name: "Email me a magic link" }).click();
-	await expect(login.getByText(/Check your inbox/)).toBeVisible();
-	await expect(login.getByText("Sign-in link has expired")).toHaveCount(0);
+	expect(await page.evaluate(() => localStorage.getItem("sb-auth-auth-token"))).toBeNull();
+	await login.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(page.getByRole("button", { name: "Play", exact: true })).toBeEnabled();
 });
 
 for (const [label, provider] of [
@@ -89,7 +111,9 @@ for (const [label, provider] of [
 	["Microsoft", "azure"],
 	["GitHub", "github"],
 ]) {
-	test(`${label} sign-in opens Supabase OAuth in the system browser`, async ({ page }) => {
+	test(`${label} optional sign-in opens Supabase OAuth in the system browser`, async ({
+		page,
+	}) => {
 		await installDesktopBridge(page, "preview.mp4", { signedIn: false });
 		await page.addInitScript(() => {
 			window.electronAPI.openExternalUrl = async (url) => {
@@ -98,7 +122,7 @@ for (const [label, provider] of [
 			};
 		});
 		await page.goto("/?windowType=editor");
-		const login = page.getByRole("dialog", { name: "Welcome to Recordly" });
+		const login = await openSignIn(page);
 		await login.getByRole("button", { name: `Continue with ${label}`, exact: true }).click();
 		await expect(page.locator("html")).toHaveAttribute("data-auth-url", /auth\/v1\/authorize/);
 		const url = new URL((await page.locator("html").getAttribute("data-auth-url"))!);
@@ -106,11 +130,33 @@ for (const [label, provider] of [
 		expect(url.searchParams.get("provider")).toBe(provider);
 		expect(url.searchParams.get("redirect_to")).toBe("http://127.0.0.1:43821/auth/callback");
 		expect(url.searchParams.get("code_challenge")).toBeTruthy();
-		await expect(login).toHaveAttribute("data-onboarding-state", "login");
+		await expect(login).toBeVisible();
 	});
 }
 
-test("restored Supabase sessions show the account and sign-out requires authentication again", async ({
+test("a successful email callback authenticates optional cloud sign-in", async ({ page }) => {
+	await installDesktopBridge(page, "preview.mp4", { signedIn: false });
+	await page.goto("/?windowType=editor");
+	const login = await openSignIn(page);
+	await login.getByRole("textbox", { name: /^Email\*?$/ }).fill("test@email.com");
+	const otpRequest = page.waitForRequest((request) => request.url().includes("/auth/v1/otp"));
+	await login.getByRole("button", { name: "Email me a magic link" }).click();
+	expect((await otpRequest).postDataJSON()).toMatchObject({
+		email: "test@email.com",
+		create_user: true,
+	});
+	await expect(login.getByText(/Check your inbox/)).toBeVisible();
+	const exchange = page.waitForRequest((request) => request.url().includes("/auth/v1/token"));
+	await completeSupabaseSignIn(page);
+	expect((await exchange).postDataJSON()).toMatchObject({
+		auth_code: "ui-auth-code",
+		code_verifier: expect.any(String),
+	});
+	await expect(login).not.toBeVisible();
+	expect(await page.evaluate(() => localStorage.getItem("sb-auth-auth-token"))).not.toBeNull();
+});
+
+test("signing out keeps local use available and does not reopen account onboarding", async ({
 	page,
 }) => {
 	await installDesktopBridge(page);
@@ -118,47 +164,28 @@ test("restored Supabase sessions show the account and sign-out requires authenti
 	await page.getByRole("button", { name: "Recordly account", exact: true }).click();
 	const account = page.getByRole("dialog", { name: "Your account", exact: true });
 	await expect(account.getByText("test@email.com")).toBeVisible();
-	await expect(account.locator('img[src$="login-banner.png"]')).toBeVisible();
 	const logout = page.waitForRequest((request) => request.url().includes("/auth/v1/logout"));
 	await account.getByRole("button", { name: "Sign out", exact: true }).click();
 	await logout;
-	const login = page.locator('[data-onboarding-state="login"]');
-	await expect(login).toBeVisible();
+	await expect(page.getByRole("dialog")).toHaveCount(0);
 	await page.reload();
-	await expect(login).toBeVisible();
-	await expect(login.getByRole("button", { name: "Continue", exact: true })).toHaveCount(0);
+	await expect(page.getByRole("button", { name: "Play", exact: true })).toBeEnabled();
+	await expect(page.getByRole("dialog")).toHaveCount(0);
+	expect(await page.evaluate(() => localStorage.getItem("sb-auth-auth-token"))).toBeNull();
 });
 
-test("sign-in banner fills spare space and keeps the email action usable in a short window", async ({
-	page,
-}) => {
+test("optional email sign-in remains usable in a short window", async ({ page }) => {
 	await page.emulateMedia({ reducedMotion: "reduce" });
 	await installDesktopBridge(page, "preview.mp4", { signedIn: false });
 	await page.goto("/?windowType=editor");
-	const login = page.getByRole("dialog", { name: "Welcome to Recordly" });
-	const banner = login.locator("[data-onboarding-artwork]");
-	const submit = login.getByRole("button", { name: "Email me a magic link" });
-	const pages = login.getByRole("navigation", { name: "Onboarding pages" });
-	await login.getByRole("textbox", { name: /^Email\*?$/ }).fill("owner@example.test");
-	await expect(submit).toBeVisible();
-	const tallBanner = (await banner.boundingBox())!;
-	expect(tallBanner.height).toBeGreaterThan(128);
-	const submitBounds = (await submit.boundingBox())!;
-	const navigationBounds = (await pages.boundingBox())!;
-	expect(navigationBounds.y - submitBounds.y - submitBounds.height).toBeLessThanOrEqual(48);
-	await page.screenshot({
-		path: "test-results/onboarding-responsive-banner.png",
-		animations: "disabled",
-	});
+	const login = await openSignIn(page);
 	await page.setViewportSize({ width: 390, height: 600 });
-	await expect(banner).toBeInViewport();
-	expect((await banner.boundingBox())!.height).toBeLessThan(tallBanner.height);
 	await login.getByRole("textbox", { name: /^Email\*?$/ }).fill("owner@example.test");
-	await expect(login.getByLabel("Password", { exact: true })).toHaveCount(0);
-	await expect(login.getByRole("navigation", { name: "Onboarding pages" })).toBeInViewport();
+	const submit = login.getByRole("button", { name: "Email me a magic link" });
 	await submit.scrollIntoViewIfNeeded();
 	await expect(submit).toBeInViewport();
 	await submit.click();
 	await expect(login.getByText(/Check your inbox/)).toBeVisible();
-	await page.screenshot({ path: "test-results/required-sign-in.png", animations: "disabled" });
+	await expect(login.getByRole("navigation", { name: "Onboarding pages" })).toHaveCount(0);
+	await page.screenshot({ path: "test-results/optional-sign-in.png", animations: "disabled" });
 });

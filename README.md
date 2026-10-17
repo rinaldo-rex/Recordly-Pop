@@ -1,3 +1,15 @@
+## Changes in this fork
+
+This fork focuses on making Recordly work reliably on **Pop!_OS/COSMIC**:
+
+- Fixes Linux startup, clipped toolbar menus, and GPU rendering issues.
+- Uses WebGL for reliable Studio previews and Lightning exports.
+- Removes mandatory sign-in for local recording, editing, and export. Cloud sharing still requires an account.
+
+Tested on Pop!_OS/COSMIC; other platforms have not been verified.
+
+---
+
 Language: EN | [简中](README.zh-CN.md)
 
 <p align="center">

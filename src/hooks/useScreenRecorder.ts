@@ -1,15 +1,15 @@
-import { acquireBrowserScreenCapture, isCapturePermissionDismissed } from "./browserScreenCapture";
 import { fixWebmDuration } from "@fix-webm-duration/fix";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "@/components/ui/toast";
 import { getEffectiveRecordingDurationMs } from "@/lib/mediaTiming";
-import { hasRecordlySession } from "@/lib/auth/recordlyAuth";
+import { acquireBrowserScreenCapture, isCapturePermissionDismissed } from "./browserScreenCapture";
 import {
 	getVideoExtensionForMimeType,
 	isWebmMimeType,
 	selectRecordingMimeType,
 	selectWebcamRecordingMimeType,
 } from "./recordingMimeType";
+import { prepareRecordingPermissions } from "./recordingPermissions";
 
 const TARGET_FRAME_RATE = 60;
 const TARGET_WIDTH = 3840;
@@ -547,26 +547,10 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 		micFallbackPauseIntervals.current = [];
 	}, []);
 
-	const preparePermissions = useCallback(async () => {
-		if (!(await hasRecordlySession().catch(() => false))) {
-			await window.electronAPI.showRecordingPermissions();
-			return false;
-		}
-		if ((await window.electronAPI.getPlatform()) !== "darwin") return true;
-		const [screen, accessibility] = await Promise.all([
-			window.electronAPI.getScreenRecordingPermissionStatus(),
-			window.electronAPI.getAccessibilityPermissionStatus(),
-		]);
-		if (
-			screen.success &&
-			screen.status === "granted" &&
-			accessibility.success &&
-			accessibility.trusted
-		)
-			return true;
-		await window.electronAPI.showRecordingPermissions();
-		return false;
-	}, []);
+	const preparePermissions = useCallback(
+		() => prepareRecordingPermissions(window.electronAPI),
+		[],
+	);
 
 	const selectMimeType = useCallback(() => {
 		return selectRecordingMimeType();
