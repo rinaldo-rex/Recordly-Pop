@@ -91,11 +91,13 @@ describe("ModernVideoExporter native fallback routing", () => {
 		configured,
 		expected,
 	}) => {
-		vi.stubGlobal("navigator", { platform });
+		// Chromium exposes navigator.gpu even when WebGPU's export filters fail.
+		// Match the 1440p/30 FPS Linux regression while retaining explicit overrides.
+		vi.stubGlobal("navigator", { platform, gpu: {} });
 		const exporter = new ModernVideoExporter({
 			videoUrl: "file:///recording.mp4",
-			width: 1920,
-			height: 1080,
+			width: 2560,
+			height: 1440,
 			frameRate: 30,
 			bitrate: 8_000_000,
 			wallpaper: "#101010",
